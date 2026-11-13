@@ -90,6 +90,7 @@ async def store_upload(upload: UploadFile, kind: str, allowed: dict[str, str], l
 
 @app.post("/api/upload/image")
 async def upload_image(image: UploadFile = File(...)):
+    original_name = Path(image.filename or "Ảnh nền").name[:120]
     file_id, path = await store_upload(image, "images", {".jpg": "", ".jpeg": "", ".png": "", ".webp": ""}, 20 * 1024 * 1024)
     try:
         with Image.open(path) as im:
@@ -103,11 +104,22 @@ async def upload_image(image: UploadFile = File(...)):
     except (UnidentifiedImageError, OSError, ValueError):
         path.unlink(missing_ok=True)
         raise HTTPException(422, "Ảnh không hợp lệ")
-    record = {"kind": "images", "filename": path.name, "width": width, "height": height, "createdAt": time.time()}
+    record = {"kind": "images", "filename": path.name, "originalName": original_name, "width": width, "height": height, "createdAt": time.time()}
     with lock:
         files[file_id] = record
         save_json(INDEX_PATH, files)
-    return {"fileId": file_id, "url": f"/uploads/images/{path.name}", "width": width, "height": height}
+    return {"fileId": file_id, "url": f"/uploads/images/{path.name}", "name": original_name, "width": width, "height": height}
+
+
+@app.get("/api/images")
+def list_images():
+    with lock:
+        records = [(file_id, item.copy()) for file_id, item in files.items() if item.get("kind") == "images"]
+    return [
+        {"fileId": file_id, "url": f"/uploads/images/{item['filename']}", "name": item.get("originalName", "Ảnh nền"), "width": item["width"], "height": item["height"]}
+        for file_id, item in sorted(records, key=lambda pair: pair[1].get("createdAt", 0), reverse=True)
+        if (UPLOADS / "images" / item["filename"]).is_file()
+    ]
 
 
 @app.post("/api/upload/video")
@@ -133,6 +145,24 @@ class GenerateRequest(BaseModel):
     fit: str = "cover"
 
 
+def layout(image: dict, video: dict) -> dict[str, int]:
+    width = max(2, min(1920, image["width"]) // 2 * 2)
+    height = max(2, round(image["height"] * width / image["width"]) // 2 * 2)
+    natural_band = round(width * video["height"] / video["width"])
+    band = max(2, (min(natural_band, height // 3)) // 2 * 2)
+    return {"width": width, "height": height, "bandHeight": band, "top": (height - band) // 2}
+
+
+@app.get("/api/layout")
+def get_layout(imageId: str, videoId: str):
+    with lock:
+        image = files.get(imageId)
+        video = files.get(videoId)
+    if not image or image.get("kind") != "images" or not video or video.get("kind") != "videos":
+        raise HTTPException(404, "Không tìm thấy ảnh hoặc video")
+    return layout(image, video)
+
+
 def set_job(job_id: str, **updates):
     with lock:
         jobs[job_id].update(updates)
@@ -145,11 +175,8 @@ def render(job_id: str, request: GenerateRequest, image: dict, video: dict):
         image_path = UPLOADS / "images" / image["filename"]
         video_path = UPLOADS / "videos" / video["filename"]
         output = UPLOADS / "outputs" / f"{job_id}.mp4"
-        width = max(2, min(1920, image["width"]) // 2 * 2)
-        height = max(2, round(image["height"] * width / image["width"]) // 2 * 2)
-        natural_band = round(width * video["height"] / video["width"])
-        band = max(2, (min(natural_band, height // 3)) // 2 * 2)
-        top = (height - band) // 2
+        size = layout(image, video)
+        width, height, band, top = size["width"], size["height"], size["bandHeight"], size["top"]
         if request.fit == "cover":
             placement = f"[1:v]scale={width}:{band}:force_original_aspect_ratio=increase,crop={width}:{band},setsar=1[v]"
         else:

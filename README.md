@@ -22,4 +22,10 @@ npm install
 npm run dev
 ```
 
-Mở http://localhost:3000. API tại http://localhost:8000. Có thể đổi bằng `NEXT_PUBLIC_API_URL` và `WEB_ORIGIN`.
+Mở http://localhost:3000. API tại http://localhost:8000. Frontend dùng đường dẫn cùng nguồn qua Next.js rewrite; nếu backend ở máy khác, đặt `BACKEND_URL` trước khi chạy frontend.
+
+### Chạy nhanh trên Windows
+
+Sau khi cài dependencies như trên, tại thư mục gốc chạy `powershell -ExecutionPolicy Bypass -File .\dev.ps1` để khởi động cả web và API. Frontend chuyển tiếp `/api` và `/uploads` tới backend; có thể đổi địa chỉ backend bằng biến môi trường `BACKEND_URL`.
+
+Ảnh nền đã upload được lưu trong `server/uploads/images` và xuất hiện lại trong thư viện khi mở app lần sau. Video upload được co/cắt theo đúng vùng giữa của ảnh nền lúc render; preview sử dụng cùng thông số kích thước với backend.
