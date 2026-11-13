@@ -2,6 +2,9 @@
 **/node_modules/
 **/.next/
 **/.venv/
+**/.cache/
+**/.turbo/
+**/.vercel/
 **/dist/
 **/build/
 **/*.tsbuildinfo
@@ -18,6 +21,9 @@ server/uploads/
 **/.ruff_cache/
 **/.coverage
 **/htmlcov/
+**/coverage/
+**/.nyc_output/
+**/tmp/
 
 # Local configuration and logs
 .env
