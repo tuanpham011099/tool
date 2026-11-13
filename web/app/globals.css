@@ -1,0 +1,8 @@
+@import "tailwindcss";
+body { background: #f3f5f7; color: #15202b; font-family: Arial, Helvetica, sans-serif; }
+button { cursor: pointer; }
+button:disabled { cursor: not-allowed; }
+.trim-track { position: relative; height: 32px; }
+.trim-track input { position: absolute; top: 0; left: 0; width: 100%; margin: 0; background: transparent; pointer-events: none; appearance: none; height: 32px; }
+.trim-track input::-webkit-slider-thumb { appearance: none; pointer-events: auto; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; background: #2563eb; box-shadow: 0 1px 5px #0005; }
+.trim-track input::-moz-range-thumb { pointer-events: auto; width: 15px; height: 15px; border-radius: 50%; border: 3px solid white; background: #2563eb; box-shadow: 0 1px 5px #0005; }

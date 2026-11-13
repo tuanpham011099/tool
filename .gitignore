@@ -1,0 +1,5 @@
+web/node_modules/
+web/.next/
+server/.venv/
+server/uploads/
+**/__pycache__/
