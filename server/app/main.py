@@ -6,6 +6,7 @@ import threading
 import time
 import uuid
 from pathlib import Path
+from typing import Literal
 
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
@@ -46,7 +47,9 @@ def save_json(path: Path, data: dict):
 
 save_json(JOBS_PATH, jobs)
 app = FastAPI(title="Video Composer")
-app.add_middleware(CORSMiddleware, allow_origins=[os.getenv("WEB_ORIGIN", "http://localhost:3000")], allow_methods=["*"], allow_headers=["*"])
+web_origins = {"http://localhost:3000", "http://127.0.0.1:3000"}
+web_origins.update(origin.strip() for origin in os.getenv("WEB_ORIGIN", "").split(",") if origin.strip())
+app.add_middleware(CORSMiddleware, allow_origins=sorted(web_origins), allow_methods=["*"], allow_headers=["*"])
 for folder in ("images", "videos", "outputs"):
     app.mount(f"/uploads/{folder}", StaticFiles(directory=UPLOADS / folder), name=folder)
 
@@ -142,7 +145,7 @@ class GenerateRequest(BaseModel):
     videoId: str
     start: float
     end: float
-    fit: str = "cover"
+    fit: Literal["cover"] = "cover"
 
 
 def layout(image: dict, video: dict) -> dict[str, int]:
@@ -177,10 +180,7 @@ def render(job_id: str, request: GenerateRequest, image: dict, video: dict):
         output = UPLOADS / "outputs" / f"{job_id}.mp4"
         size = layout(image, video)
         width, height, band, top = size["width"], size["height"], size["bandHeight"], size["top"]
-        if request.fit == "cover":
-            placement = f"[1:v]scale={width}:{band}:force_original_aspect_ratio=increase,crop={width}:{band},setsar=1[v]"
-        else:
-            placement = f"[1:v]scale={width}:{band}:force_original_aspect_ratio=decrease,setsar=1[v]"
+        placement = f"[1:v]scale={width}:{band}:force_original_aspect_ratio=increase,crop={width}:{band},setsar=1[v]"
         filters = f"[0:v]scale={width}:{height},setsar=1[bg];{placement};[bg][v]overlay=(W-w)/2:{top}:shortest=1[out]"
         command = ["ffmpeg", "-y", "-loglevel", "error", "-loop", "1", "-i", str(image_path), "-ss", str(request.start), "-t", str(request.end - request.start), "-i", str(video_path), "-filter_complex", filters, "-map", "[out]"]
         if video["hasAudio"]:
@@ -214,8 +214,6 @@ def generate(request: GenerateRequest):
         video = files.get(request.videoId)
     if not image or image["kind"] != "images" or not video or video["kind"] != "videos":
         raise HTTPException(404, "Không tìm thấy ảnh hoặc video")
-    if request.fit not in ("cover", "contain"):
-        raise HTTPException(422, "Fit phải là cover hoặc contain")
     if not all(math.isfinite(x) for x in (request.start, request.end)) or request.start < 0 or request.end <= request.start or request.end - request.start > 30.001 or request.end > video["duration"] + 0.05:
         raise HTTPException(422, "Đoạn video phải nằm trong thời lượng gốc và dài tối đa 30 giây")
     job_id = f"job_{uuid.uuid4().hex}"

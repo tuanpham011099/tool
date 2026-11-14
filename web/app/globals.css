@@ -22,10 +22,6 @@ button:disabled { cursor: not-allowed; }
 .metric { border-radius: 10px; background: #f8fafc; padding: 12px 5px; }
 .metric small { display: block; color: #64748b; font-size: 10px; font-weight: 700; letter-spacing: .06em; }
 .metric strong { display: block; margin-top: 3px; font-size: 16px; }
-.fit-choice { display: flex; flex-direction: column; gap: 3px; min-width: 0; flex: 1; border: 1px solid #cbd5e1; border-radius: 11px; padding: 12px; font-size: 14px; font-weight: 700; }
-.fit-choice.active { border-color: #2563eb; background: #eff6ff; }
-.fit-choice input { float: left; margin-right: 5px; accent-color: #2563eb; }
-.fit-choice span { color: #64748b; font-size: 11px; font-weight: 400; }
 .trim-track { position: relative; height: 32px; }
 .trim-track input { position: absolute; top: 0; left: 0; width: 100%; margin: 0; background: transparent; pointer-events: none; appearance: none; height: 32px; }
 .trim-track input::-webkit-slider-thumb { appearance: none; pointer-events: auto; width: 20px; height: 20px; border-radius: 50%; border: 3px solid white; background: #2563eb; box-shadow: 0 1px 5px #0005; }
