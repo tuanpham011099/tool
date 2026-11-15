@@ -10,6 +10,7 @@ type Job = { jobId: string; status: "queued" | "processing" | "completed" | "fai
 const formatTime = (seconds: number) => `${Math.floor(seconds / 60).toString().padStart(2, "0")}:${Math.floor(seconds % 60).toString().padStart(2, "0")}`;
 const connectionError = "Không kết nối được API. Hãy chạy cả backend và frontend bằng .\\dev.ps1 ở thư mục gốc.";
 const uploadApi = process.env.NEXT_PUBLIC_UPLOAD_API_URL || "http://localhost:8000";
+const FRAME_CACHE_KEY = "video-composer-recent-frames-v1";
 
 async function api<T>(url: string, options?: RequestInit): Promise<T> {
   let response: Response;
@@ -51,6 +52,8 @@ export default function Home() {
   const [video, setVideo] = useState<VideoFile | null>(null);
   const [layout, setLayout] = useState<Layout | null>(null);
   const [region, setRegion] = useState<Region | null>(null);
+  const [recentFrames, setRecentFrames] = useState<Region[]>([]);
+  const [historyLoaded, setHistoryLoaded] = useState(false);
   const [start, setStart] = useState(0);
   const [end, setEnd] = useState(0);
   const [busy, setBusy] = useState<"image" | "video" | null>(null);
@@ -59,6 +62,14 @@ export default function Home() {
   const [error, setError] = useState("");
   const videoRef = useRef<HTMLVideoElement>(null);
 
+  useEffect(() => {
+    try {
+      const saved: unknown = JSON.parse(localStorage.getItem(FRAME_CACHE_KEY) || "[]");
+      if (Array.isArray(saved)) setRecentFrames(saved.filter((item): item is Region => typeof item?.y === "number" && typeof item?.height === "number" && Number.isFinite(item.y) && Number.isFinite(item.height) && item.y >= 0 && item.height >= 0.03 && item.y + item.height <= 1.000001).slice(0, 10).map(item => ({ x: 0, y: item.y, width: 1, height: item.height })));
+    } catch { /* Ignore invalid browser cache. */ }
+    setHistoryLoaded(true);
+  }, []);
+  useEffect(() => { if (historyLoaded) { try { localStorage.setItem(FRAME_CACHE_KEY, JSON.stringify(recentFrames)); } catch { /* Browser storage may be disabled. */ } } }, [recentFrames, historyLoaded]);
   useEffect(() => { api<ImageFile[]>("/api/images").then(setImages).catch(e => setError(e.message)); }, []);
   useEffect(() => {
     if (!image || !video) { setLayout(null); return; }
@@ -118,7 +129,12 @@ export default function Home() {
       void player.play().catch(() => setError("Trình duyệt không phát được định dạng video này. Bạn vẫn có thể tạo MP4."));
     } else player.pause();
   }
-  const valid = !!image && !!video && !!layout && !!region && region.width >= 0.03 && region.height >= 0.03 && start >= 0 && end > start && end - start <= 30.001 && end <= video.duration + 0.05;
+  function rememberFrame(frame: Region) {
+    const y = Math.round(frame.y * 10000) / 10000;
+    const normalized = { x: 0, y, width: 1, height: Math.min(1 - y, Math.round(frame.height * 10000) / 10000) };
+    setRecentFrames(previous => [normalized, ...previous.filter(item => Math.abs(item.y - normalized.y) > 0.005 || Math.abs(item.height - normalized.height) > 0.005)].slice(0, 10));
+  }
+  const valid = !!image && !!video && !!layout && !!region && region.x === 0 && region.width === 1 && region.height >= 0.03 && start >= 0 && end > start && end - start <= 30.001 && end <= video.duration + 0.05;
 
   return <main className="mx-auto max-w-6xl px-4 pb-20 pt-8 md:px-8">
     <header className="mb-8 flex flex-wrap items-end justify-between gap-4 border-b border-slate-200 pb-6"><div><p className="text-xs font-bold uppercase tracking-[.22em] text-blue-600">Video Composer</p><h1 className="mt-2 text-3xl font-bold tracking-tight md:text-4xl">Tạo video từ ảnh nền</h1><p className="mt-2 text-slate-500">Chọn ảnh, ghép đoạn video vào giữa và xuất MP4 trong vài bước.</p></div><div className="rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-medium text-blue-700">Tối đa 30 giây / video</div></header>
@@ -129,14 +145,15 @@ export default function Home() {
       </section>
       <section className="panel"><div className="section-head"><span className="step">02</span><div><h2 className="section-title">Video của bạn</h2><p className="section-subtitle">MP4, MOV, WebM · tối đa 500 MB</p></div></div><label className="upload-button"><input className="sr-only" type="file" accept=".mp4,.mov,.webm" disabled={!!busy} onChange={e => { const file = e.target.files?.[0]; if (file) upload(file, "video"); e.target.value = ""; }} />{busy === "video" ? uploadProgress < 100 ? `Đang tải video: ${uploadProgress}%` : "Đang kiểm tra video..." : "+ Chọn video"}</label>{busy === "video" && <div role="progressbar" aria-valuenow={uploadProgress} aria-valuemin={0} aria-valuemax={100} className="mt-3 h-2 overflow-hidden rounded-full bg-slate-200"><div className="h-full bg-blue-500 transition-all" style={{ width: `${uploadProgress}%` }} /></div>}{video && <div className="mt-4 rounded-xl border border-slate-200 bg-slate-50 p-4"><p className="font-medium">Video đã tải lên</p><p className="mt-1 text-sm text-slate-500">{video.width} × {video.height} px · {formatTime(video.duration)}</p><p className="mt-2 text-xs text-slate-500">Video sẽ được phóng và cắt để phủ kín khung bạn chọn trên ảnh.</p></div>}</section>
       {video && <section className="panel"><div className="section-head"><span className="step">03</span><div><h2 className="section-title">Cắt đoạn video</h2><p className="section-subtitle">Kéo hai điểm hoặc dùng thời điểm đang xem</p></div></div><div className="trim-track mt-5"><div className="absolute top-3 h-2 w-full rounded-full bg-slate-200"/><div className="absolute top-3 h-2 rounded-full bg-blue-500" style={{ left: `${start / video.duration * 100}%`, width: `${(end - start) / video.duration * 100}%` }}/><input aria-label="Start" type="range" min="0" max={video.duration} step="0.1" value={start} onChange={e => updateStart(Number(e.target.value))} style={{ zIndex: start > video.duration - 2 ? 3 : 2 }}/><input aria-label="End" type="range" min="0" max={video.duration} step="0.1" value={end} onChange={e => updateEnd(Number(e.target.value))} style={{ zIndex: 2 }}/></div><div className="mt-4 grid grid-cols-3 gap-2 text-center"><div className="metric"><small>START</small><strong>{formatTime(start)}</strong></div><div className="metric"><small>END</small><strong>{formatTime(end)}</strong></div><div className="metric"><small>THỜI LƯỢNG</small><strong>{(end - start).toFixed(1)}s</strong></div></div><div className="mt-4 flex gap-2"><button className="secondary-button" onClick={() => updateStart(videoRef.current?.currentTime || 0)}>Set Start</button><button className="secondary-button" onClick={() => updateEnd(videoRef.current?.currentTime || 0)}>Set End</button></div></section>}
-      <section className="panel"><div className="section-head"><span className="step">04</span><div><h2 className="section-title">Xuất video</h2><p className="section-subtitle">Video lấp đầy khung bạn đã chọn</p></div></div><p className="mt-5 rounded-xl bg-blue-50 p-3 text-sm text-blue-800">Kéo chuột trên ảnh để chọn vị trí và kích thước. Video sẽ phủ kín khung đã chọn.</p><button className="primary-button mt-5 w-full" disabled={!valid || !!busy || job?.status === "queued" || job?.status === "processing"} onClick={generate}>Generate MP4</button></section>
+      <section className="panel"><div className="section-head"><span className="step">04</span><div><h2 className="section-title">Xuất video</h2><p className="section-subtitle">Video lấp đầy khung bạn đã chọn</p></div></div><p className="mt-5 rounded-xl bg-blue-50 p-3 text-sm text-blue-800">Chọn chiều cao và vị trí dọc trên ảnh. Video sẽ phủ kín toàn bộ chiều rộng của khung.</p><button className="primary-button mt-5 w-full" disabled={!valid || !!busy || job?.status === "queued" || job?.status === "processing"} onClick={generate}>Generate MP4</button></section>
     </div><aside><section className="panel lg:sticky lg:top-5">
       <div className="flex items-center justify-between gap-2"><h2 className="section-title">Chọn khung trên ảnh</h2>{region && <span className="rounded-full bg-emerald-50 px-3 py-1 text-xs font-semibold text-emerald-700">Đã chọn vùng</span>}</div>
-      <p className="mt-2 text-sm text-slate-500">Kéo chuột trên ảnh để vẽ khung. Kéo bên trong khung để di chuyển. Chọn lại nếu muốn vẽ vùng khác.</p>
-      {image ? <SelectionCanvas imageUrl={image.url} imageWidth={image.width} imageHeight={image.height} videoUrl={video?.url} videoRef={videoRef} start={start} end={end} region={region} onRegionChange={setRegion} /> : <div className="mt-5 flex aspect-[9/12] items-center justify-center rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 text-center text-sm text-slate-400">Chọn ảnh nền để vẽ khung video</div>}
+      <p className="mt-2 text-sm text-slate-500">Khung phủ hết chiều rộng ảnh. Kéo trên ảnh để chọn chiều cao, kéo trong khung để đổi vị trí, hoặc kéo mép trên/dưới để chỉnh lại.</p>
+      {image ? <SelectionCanvas imageUrl={image.url} imageWidth={image.width} imageHeight={image.height} videoUrl={video?.url} videoRef={videoRef} start={start} end={end} region={region} onRegionChange={setRegion} onRegionCommit={rememberFrame} /> : <div className="mt-5 flex aspect-[9/12] items-center justify-center rounded-xl border-2 border-dashed border-slate-200 bg-slate-50 text-center text-sm text-slate-400">Chọn ảnh nền để vẽ khung video</div>}
       {image && <div className="mt-4 flex flex-wrap gap-2"><button className="secondary-button" type="button" onClick={() => setRegion(null)}>Chọn lại khung</button>{video && region && <button className="secondary-button" type="button" onClick={togglePreview}>Phát / tạm dừng preview</button>}</div>}
-      {region && <p className="mt-3 text-sm text-slate-500">Vị trí: {Math.round(region.x * 100)}% trái, {Math.round(region.y * 100)}% trên · Kích thước: {Math.round(region.width * 100)}% × {Math.round(region.height * 100)}%</p>}
-      {layout && region && <p className="mt-1 text-xs text-slate-400">Khung xuất khoảng {Math.round(region.width * layout.width)} × {Math.round(region.height * layout.height)} px trên ảnh {layout.width} × {layout.height} px.</p>}
+      {region && <p className="mt-3 text-sm text-slate-500">Rộng hết ảnh · Bắt đầu ở {Math.round(region.y * 100)}% chiều cao · Cao {Math.round(region.height * 100)}%</p>}
+      {layout && region && <p className="mt-1 text-xs text-slate-400">Khung xuất khoảng {layout.width} × {Math.round(region.height * layout.height)} px trên ảnh {layout.width} × {layout.height} px.</p>}
+      {image && recentFrames.length > 0 && <div className="mt-5 border-t border-slate-200 pt-4"><h3 className="text-sm font-semibold">10 khung gần đây</h3><p className="mt-1 text-xs text-slate-500">Bấm để áp dụng vị trí và chiều cao cho ảnh này.</p><div className="mt-3 grid grid-cols-2 gap-2">{recentFrames.map((frame, index) => <button key={`${frame.y}-${frame.height}`} type="button" className={`frame-preset ${region && Math.abs(region.y - frame.y) < 0.005 && Math.abs(region.height - frame.height) < 0.005 ? "active" : ""}`} onClick={() => { setRegion(frame); rememberFrame(frame); }}><span className="frame-preset-icon"><span style={{ top: `${frame.y * 100}%`, height: `${frame.height * 100}%` }} /></span><span>Khung {index + 1}<small>Cao {Math.round(frame.height * 100)}% · trên {Math.round(frame.y * 100)}%</small></span></button>)}</div></div>}
       {job && <div className="mt-6 border-t border-slate-200 pt-5"><h3 className="font-semibold">Kết quả</h3><p className="mt-1 text-sm text-slate-500">{job.status === "queued" ? "Đang chờ xử lý" : job.status === "processing" ? `Đang xử lý ${job.progress}%` : job.status === "completed" ? "Đã hoàn thành" : `Thất bại: ${job.error}`}</p>{["queued", "processing"].includes(job.status) && <div className="mt-3 h-2 rounded-full bg-slate-200"><div className="h-full rounded-full bg-blue-500" style={{ width: `${job.progress}%` }}/></div>}{job.status === "completed" && job.resultUrl && <><video controls src={job.resultUrl} className="mt-4 w-full rounded-lg bg-black"/><a className="primary-button mt-3 block text-center" href={`/api/jobs/${job.jobId}/download`}>Tải MP4</a></>}{job.status === "failed" && <button className="secondary-button mt-3" onClick={generate}>Thử lại</button>}</div>}
     </section></aside></div>
   </main>;

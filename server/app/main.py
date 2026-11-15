@@ -263,6 +263,8 @@ def generate(request: GenerateRequest):
         video = files.get(request.videoId)
     if not image or image["kind"] != "images" or not video or video["kind"] != "videos":
         raise HTTPException(404, "Không tìm thấy ảnh hoặc video")
+    if request.region.x != 0 or request.region.width != 1:
+        raise HTTPException(422, "Khung video phải phủ hết chiều rộng ảnh")
     if request.region.x + request.region.width > 1.000001 or request.region.y + request.region.height > 1.000001:
         raise HTTPException(422, "Khung video phải nằm hoàn toàn trong ảnh")
     if not all(math.isfinite(x) for x in (request.start, request.end)) or request.start < 0 or request.end <= request.start or request.end - request.start > 30.001 or request.end > video["duration"] + 0.05:

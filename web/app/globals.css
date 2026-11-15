@@ -15,6 +15,11 @@ button:disabled { cursor: not-allowed; }
 .image-choice img { width: 100%; height: 110px; object-fit: cover; }
 .image-choice span { display: block; }
 .selection-canvas { cursor: crosshair; touch-action: none; user-select: none; }
+.frame-preset { display: flex; align-items: center; gap: 10px; min-width: 0; padding: 9px; border: 1px solid #cbd5e1; border-radius: 10px; background: #fff; text-align: left; font-size: 12px; font-weight: 700; }
+.frame-preset:hover, .frame-preset.active { border-color: #2563eb; background: #eff6ff; }
+.frame-preset-icon { position: relative; display: block; width: 22px; height: 34px; flex: none; overflow: hidden; border: 1px solid #94a3b8; border-radius: 3px; background: #f8fafc; }
+.frame-preset-icon span { position: absolute; left: 0; width: 100%; background: #60a5fa; }
+.frame-preset small { display: block; margin-top: 2px; color: #64748b; font-size: 10px; font-weight: 400; }
 .secondary-button { border: 1px solid #cbd5e1; border-radius: 9px; padding: 9px 14px; background: white; color: #334155; font-size: 14px; font-weight: 600; }
 .secondary-button:hover { background: #f1f5f9; }
 .primary-button { border: 1px solid #1d4ed8; border-radius: 10px; padding: 13px 18px; background: #2563eb; color: white; font-weight: 700; }
