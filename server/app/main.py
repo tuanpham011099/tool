@@ -8,12 +8,13 @@ import uuid
 from pathlib import Path
 from typing import Literal
 
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from PIL import Image, ImageOps, UnidentifiedImageError
-from pydantic import BaseModel
+from pydantic import BaseModel, Field
+from starlette.concurrency import run_in_threadpool
 
 ROOT = Path(__file__).resolve().parents[1]
 UPLOADS = ROOT / "uploads"
@@ -128,6 +129,37 @@ def list_images():
 @app.post("/api/upload/video")
 async def upload_video(video: UploadFile = File(...)):
     file_id, path = await store_upload(video, "videos", {".mp4": "", ".mov": "", ".webm": ""}, 500 * 1024 * 1024)
+    return await run_in_threadpool(register_video, file_id, path)
+
+
+@app.post("/api/upload/video/raw")
+async def upload_video_raw(request: Request):
+    suffix = request.headers.get("x-file-ext", "").lower()
+    if suffix not in (".mp4", ".mov", ".webm"):
+        raise HTTPException(415, "Định dạng video không được hỗ trợ")
+    limit = 500 * 1024 * 1024
+    content_length = request.headers.get("content-length")
+    if content_length and content_length.isdigit() and int(content_length) > limit:
+        raise HTTPException(413, "Video vượt quá 500 MB")
+    file_id = f"vid_{uuid.uuid4().hex}"
+    path = UPLOADS / "videos" / f"{file_id}{suffix}"
+    total = 0
+    try:
+        with path.open("wb") as target:
+            async for chunk in request.stream():
+                total += len(chunk)
+                if total > limit:
+                    raise HTTPException(413, "Video vượt quá 500 MB")
+                target.write(chunk)
+        if total == 0:
+            raise HTTPException(422, "Video rỗng")
+    except BaseException:
+        path.unlink(missing_ok=True)
+        raise
+    return await run_in_threadpool(register_video, file_id, path)
+
+
+def register_video(file_id: str, path: Path):
     try:
         info = probe(path)
     except HTTPException:
@@ -140,12 +172,20 @@ async def upload_video(video: UploadFile = File(...)):
     return {"fileId": file_id, "url": f"/uploads/videos/{path.name}", "duration": info["duration"], "width": info["width"], "height": info["height"]}
 
 
+class Region(BaseModel):
+    x: float = Field(ge=0, le=1, allow_inf_nan=False)
+    y: float = Field(ge=0, le=1, allow_inf_nan=False)
+    width: float = Field(gt=0, le=1, allow_inf_nan=False)
+    height: float = Field(gt=0, le=1, allow_inf_nan=False)
+
+
 class GenerateRequest(BaseModel):
     imageId: str
     videoId: str
     start: float
     end: float
     fit: Literal["cover"] = "cover"
+    region: Region
 
 
 def layout(image: dict, video: dict) -> dict[str, int]:
@@ -154,6 +194,14 @@ def layout(image: dict, video: dict) -> dict[str, int]:
     natural_band = round(width * video["height"] / video["width"])
     band = max(2, (min(natural_band, height // 3)) // 2 * 2)
     return {"width": width, "height": height, "bandHeight": band, "top": (height - band) // 2}
+
+
+def region_pixels(region: Region, canvas_width: int, canvas_height: int) -> tuple[int, int, int, int]:
+    left = min(canvas_width - 2, round(region.x * canvas_width / 2) * 2)
+    top = min(canvas_height - 2, round(region.y * canvas_height / 2) * 2)
+    right = max(left + 2, min(canvas_width, round((region.x + region.width) * canvas_width / 2) * 2))
+    bottom = max(top + 2, min(canvas_height, round((region.y + region.height) * canvas_height / 2) * 2))
+    return left, top, right - left, bottom - top
 
 
 @app.get("/api/layout")
@@ -179,9 +227,10 @@ def render(job_id: str, request: GenerateRequest, image: dict, video: dict):
         video_path = UPLOADS / "videos" / video["filename"]
         output = UPLOADS / "outputs" / f"{job_id}.mp4"
         size = layout(image, video)
-        width, height, band, top = size["width"], size["height"], size["bandHeight"], size["top"]
-        placement = f"[1:v]scale={width}:{band}:force_original_aspect_ratio=increase,crop={width}:{band},setsar=1[v]"
-        filters = f"[0:v]scale={width}:{height},setsar=1[bg];{placement};[bg][v]overlay=(W-w)/2:{top}:shortest=1[out]"
+        width, height = size["width"], size["height"]
+        left, top, box_width, box_height = region_pixels(request.region, width, height)
+        placement = f"[1:v]scale={box_width}:{box_height}:force_original_aspect_ratio=increase,crop={box_width}:{box_height},setsar=1[v]"
+        filters = f"[0:v]scale={width}:{height},setsar=1[bg];{placement};[bg][v]overlay={left}:{top}:shortest=1[out]"
         command = ["ffmpeg", "-y", "-loglevel", "error", "-loop", "1", "-i", str(image_path), "-ss", str(request.start), "-t", str(request.end - request.start), "-i", str(video_path), "-filter_complex", filters, "-map", "[out]"]
         if video["hasAudio"]:
             command += ["-map", "1:a:0", "-c:a", "aac", "-b:a", "128k"]
@@ -214,6 +263,8 @@ def generate(request: GenerateRequest):
         video = files.get(request.videoId)
     if not image or image["kind"] != "images" or not video or video["kind"] != "videos":
         raise HTTPException(404, "Không tìm thấy ảnh hoặc video")
+    if request.region.x + request.region.width > 1.000001 or request.region.y + request.region.height > 1.000001:
+        raise HTTPException(422, "Khung video phải nằm hoàn toàn trong ảnh")
     if not all(math.isfinite(x) for x in (request.start, request.end)) or request.start < 0 or request.end <= request.start or request.end - request.start > 30.001 or request.end > video["duration"] + 0.05:
         raise HTTPException(422, "Đoạn video phải nằm trong thời lượng gốc và dài tối đa 30 giây")
     job_id = f"job_{uuid.uuid4().hex}"

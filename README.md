@@ -28,4 +28,6 @@ Mở http://localhost:3000. API tại http://localhost:8000. Frontend dùng Next
 
 Sau khi cài dependencies như trên, tại thư mục gốc chạy `powershell -ExecutionPolicy Bypass -File .\dev.ps1` để khởi động cả web và API. Frontend chuyển tiếp `/api` và `/uploads` tới backend; có thể đổi địa chỉ backend bằng biến môi trường `BACKEND_URL`.
 
-Ảnh nền đã upload được lưu trong `server/uploads/images` và xuất hiện lại trong thư viện khi mở app lần sau. Video MP4, MOV hoặc WebM có thể tải lên đến 500 MB; giao diện hiển thị tiến độ upload. Khi render, video luôn được phóng theo tỉ lệ gốc rồi cắt phần dư để phủ kín vùng giữa ảnh nền; preview sử dụng cùng thông số kích thước với backend.
+Ảnh nền đã upload được lưu trong `server/uploads/images` và xuất hiện lại trong thư viện khi mở app lần sau. Sau khi chọn ảnh, kéo chuột trên ảnh để vẽ khung video và kéo bên trong khung để đổi vị trí. Video được phóng theo tỉ lệ gốc rồi cắt phần dư để phủ kín khung đã chọn. Tọa độ khung được gửi dưới dạng tỉ lệ `x`, `y`, `width`, `height` (0–1) trong request `/api/generate`.
+
+Video MP4, MOV hoặc WebM có thể tải lên đến 500 MB. Giao diện hiển thị tiến độ upload và gửi dữ liệu video thẳng tới `/api/upload/video/raw`, giúp server ghi file ngay khi nhận thay vì tạo thêm bản sao tạm từ multipart. Endpoint multipart `/api/upload/video` vẫn dùng được cho client cũ.
